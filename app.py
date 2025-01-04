@@ -1,10 +1,11 @@
+# At the top of your file, add these imports:
 import streamlit as st
+import PyPDF2
+import docx
 import requests
-import json
-from urllib.parse import urlparse, parse_qs
-import re
 from datetime import datetime
-import time
+import pytz  # Add this import for timezone handling
+
 
 # Page configuration
 st.set_page_config(
@@ -374,7 +375,9 @@ def footer():
     with col2:
         st.markdown("Last Updated: 2024-01-04")
     with col3:
-        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        # Use pytz for UTC timezone
+        utc_now = datetime.now(pytz.UTC)
+        current_time = utc_now.strftime("%Y-%m-%d %H:%M:%S UTC")
         st.markdown(f"Current Time: {current_time}")
 
 # Main App
