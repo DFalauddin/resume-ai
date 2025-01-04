@@ -1,11 +1,13 @@
-# At the top of your file, add these imports:
 import streamlit as st
 import PyPDF2
 import docx
 import requests
+import json
+from urllib.parse import urlparse, parse_qs
+import re
 from datetime import datetime
-import pytz  # Add this import for timezone handling
-
+import pytz
+import time
 
 # Page configuration
 st.set_page_config(
@@ -14,6 +16,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# Initialize session state
+if 'step' not in st.session_state:
+    st.session_state['step'] = 1
+if 'resume_text' not in st.session_state:
+    st.session_state['resume_text'] = None
+if 'job_details' not in st.session_state:
+    st.session_state['job_details'] = None
 
 # Custom CSS
 def load_css():
@@ -46,10 +56,6 @@ def load_css():
             transition: transform 0.3s ease !important;
         }
         
-        .feature-card:hover {
-            transform: translateY(-5px) !important;
-        }
-        
         .stButton > button {
             background-color: #1a73e8;
             color: white;
@@ -57,14 +63,9 @@ def load_css():
             padding: 0.5em 2em;
             border: none;
         }
-        
-        .stButton > button:hover {
-            background-color: #1557b0;
-        }
         </style>
     """, unsafe_allow_html=True)
 
-# Helper Functions
 def extract_text_from_pdf(pdf_file):
     try:
         pdf_reader = PyPDF2.PdfReader(pdf_file)
@@ -87,16 +88,62 @@ def extract_text_from_docx(docx_file):
         st.error(f"Error reading DOCX: {str(e)}")
         return None
 
-def extract_job_details(linkedin_url):
-    # Mock implementation
+def extract_job_id_from_url(url):
+    try:
+        patterns = [
+            r'jobs/view/(\d+)',
+            r'jobs/(\d+)',
+            r'viewJob/(\d+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
+    except Exception as e:
+        st.error(f"Error parsing URL: {str(e)}")
+        return None
+
+def validate_linkedin_url(url):
+    try:
+        parsed_url = urlparse(url)
+        return (
+            parsed_url.netloc in ['www.linkedin.com', 'linkedin.com'] and
+            'jobs' in parsed_url.path.lower()
+        )
+    except:
+        return False
+
+def generate_mock_job_details(job_id):
     return {
-        "title": "Sample Job Title",
-        "description": "This is a sample job description with key requirements...",
-        "requirements": ["Python", "Machine Learning", "Data Analysis"],
-        "company": "Sample Company"
+        "job_id": job_id,
+        "title": "Senior Software Engineer",
+        "company": "Tech Solutions Inc.",
+        "location": "San Francisco, CA (Remote)",
+        "posted_date": datetime.now().strftime("%Y-%m-%d"),
+        "description": """We are looking for a Senior Software Engineer with expertise in:
+        - Python development
+        - Machine Learning
+        - Cloud Infrastructure
+        - API Development
+        - Database Management""",
+        "requirements": [
+            "Python",
+            "Machine Learning",
+            "Cloud Infrastructure",
+            "API Development",
+            "Database Management"
+        ],
+        "extracted_keywords": [
+            "Python",
+            "Machine Learning",
+            "AWS",
+            "REST APIs",
+            "PostgreSQL"
+        ]
     }
 
-def customize_resume(resume_text, job_details):
+def generate_customized_resume(resume_text, job_details):
     progress_bar = st.progress(0)
     status_text = st.empty()
     
@@ -113,21 +160,34 @@ def customize_resume(resume_text, job_details):
         progress_bar.progress((i + 1) * 20)
         time.sleep(1)
     
-    return f"""
-    CUSTOMIZED RESUME
-    
-    PROFESSIONAL SUMMARY
-    Experienced professional with skills matching {job_details['title']} requirements.
-    
-    HIGHLIGHTED SKILLS
-    {', '.join(job_details['requirements'])}
-    
-    [Rest of resume content would go here...]
-    """
+    customized_content = f"""
+CUSTOMIZED RESUME
 
-# Page Sections
+PROFESSIONAL SUMMARY
+Results-driven professional with experience in software development and expertise aligned with {job_details['title']} role at {job_details['company']}.
+
+KEY SKILLS
+{', '.join(job_details['requirements'])}
+
+PROFESSIONAL EXPERIENCE
+[Your experience tailored to match {job_details['company']} requirements]
+
+EDUCATION
+[Your education details]
+
+ADDITIONAL INFORMATION
+- Location: {job_details['location']}
+- Available to start: Immediately
+    """
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    return customized_content
+
 def upload_resume_section():
     st.markdown("### 📄 Upload Your Resume")
+    
     uploaded_file = st.file_uploader(
         "Upload your resume (PDF or DOCX)",
         type=["pdf", "docx"],
@@ -152,168 +212,9 @@ def upload_resume_section():
             st.success("Resume uploaded successfully!")
             st.session_state['step'] = 2
 
-import streamlit as st
-import requests
-import json
-from urllib.parse import urlparse, parse_qs
-import re
-from datetime import datetime
-import time
-
-def extract_job_id_from_url(url):
-    """Extract job ID from various LinkedIn URL formats"""
-    try:
-        # Handle different LinkedIn URL formats
-        patterns = [
-            r'jobs/view/(\d+)',  # Standard format
-            r'jobs/(\d+)',       # Alternative format
-            r'viewJob/(\d+)',    # Old format
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, url)
-            if match:
-                return match.group(1)
-        return None
-    except Exception as e:
-        st.error(f"Error parsing URL: {str(e)}")
-        return None
-
-def validate_linkedin_url(url):
-    """Validate if the URL is a legitimate LinkedIn job posting"""
-    try:
-        parsed_url = urlparse(url)
-        return (
-            parsed_url.netloc in ['www.linkedin.com', 'linkedin.com'] and
-            'jobs' in parsed_url.path.lower()
-        )
-    except:
-        return False
-
-def extract_job_details(linkedin_url):
-    """Extract job details from LinkedIn URL"""
-    try:
-        # Display processing status
-        status_placeholder = st.empty()
-        progress_bar = st.progress(0)
-        
-        # Update status
-        status_placeholder.text("Validating URL...")
-        progress_bar.progress(20)
-        time.sleep(0.5)
-        
-        # Validate URL
-        if not validate_linkedin_url(linkedin_url):
-            st.error("Please enter a valid LinkedIn job posting URL")
-            return None
-        
-        # Extract job ID
-        status_placeholder.text("Extracting job information...")
-        progress_bar.progress(40)
-        time.sleep(0.5)
-        
-        job_id = extract_job_id_from_url(linkedin_url)
-        if not job_id:
-            st.error("Could not extract job ID from URL")
-            return None
-        
-        # Simulate API call (replace with actual LinkedIn API implementation)
-        status_placeholder.text("Analyzing job posting...")
-        progress_bar.progress(60)
-        time.sleep(0.5)
-        
-        # Mock job details (replace with actual API response)
-        job_details = {
-            "job_id": job_id,
-            "title": "Senior Software Engineer",
-            "company": "Tech Solutions Inc.",
-            "location": "San Francisco, CA (Remote)",
-            "posted_date": datetime.now().strftime("%Y-%m-%d"),
-            "description": """
-            We are looking for a Senior Software Engineer with expertise in:
-            - Python development
-            - Machine Learning
-            - Cloud Infrastructure
-            - API Development
-            - Database Management
-            
-            Key Responsibilities:
-            - Design and implement scalable solutions
-            - Lead technical projects
-            - Mentor junior developers
-            - Collaborate with cross-functional teams
-            """,
-            "requirements": [
-                "Python",
-                "Machine Learning",
-                "Cloud Infrastructure",
-                "API Development",
-                "Database Management"
-            ],
-            "extracted_keywords": [
-                "Python",
-                "Machine Learning",
-                "AWS",
-                "REST APIs",
-                "PostgreSQL",
-                "Team Leadership"
-            ]
-        }
-        
-        # Update status
-        status_placeholder.text("Processing complete!")
-        progress_bar.progress(100)
-        time.sleep(0.5)
-        
-        # Clear status displays
-        status_placeholder.empty()
-        progress_bar.empty()
-        
-        return job_details
-        
-    except Exception as e:
-        st.error(f"Error processing job details: {str(e)}")
-        return None
-
-def display_job_details(job_details):
-    """Display extracted job details in a formatted way"""
-    if job_details:
-        st.markdown("### 📋 Job Details")
-        
-        # Job header
-        st.markdown(f"""
-        #### {job_details['title']}
-        **Company:** {job_details['company']}  
-        **Location:** {job_details['location']}  
-        **Posted:** {job_details['posted_date']}
-        """)
-        
-        # Description
-        st.markdown("#### Description")
-        st.text_area("Job Description", job_details['description'], height=200, disabled=True)
-        
-        # Requirements and Keywords
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### Key Requirements")
-            for req in job_details['requirements']:
-                st.markdown(f"- {req}")
-        
-        with col2:
-            st.markdown("#### Extracted Keywords")
-            for keyword in job_details['extracted_keywords']:
-                st.markdown(f"- {keyword}")
-        
-        # Save to session state
-        st.session_state['job_details'] = job_details
-        return True
-    return False
-
 def job_link_section():
     st.markdown("### 🔗 Add Job Link")
     
-    # URL input
     job_url = st.text_input(
         "Paste the LinkedIn job URL",
         placeholder="https://www.linkedin.com/jobs/view/...",
@@ -323,22 +224,25 @@ def job_link_section():
     if job_url:
         if validate_linkedin_url(job_url):
             with st.spinner("Analyzing job posting..."):
-                job_details = extract_job_details(job_url)
-                if display_job_details(job_details):
+                job_id = extract_job_id_from_url(job_url)
+                if job_id:
+                    job_details = generate_mock_job_details(job_id)
+                    st.session_state['job_details'] = job_details
+                    
                     st.success("Job details extracted successfully!")
+                    st.markdown("### 📋 Job Details")
+                    st.write(f"**Title:** {job_details['title']}")
+                    st.write(f"**Company:** {job_details['company']}")
+                    st.write(f"**Location:** {job_details['location']}")
+                    
+                    st.markdown("#### Requirements:")
+                    for req in job_details['requirements']:
+                        st.markdown(f"- {req}")
+                    
                     st.session_state['step'] = 3
         else:
             st.error("Please enter a valid LinkedIn job URL")
-            st.info("Example URL format: https://www.linkedin.com/jobs/view/123456789")
-
-# Update the main function to include the new job link section
-def main():
-    # ... (previous main code) ...
-    
-    with tab2:
-        job_link_section()
-    
-    # ... (rest of the main code) ...
+            st.info("Example: https://www.linkedin.com/jobs/view/123456789")
 
 def customize_resume_section():
     st.markdown("### ✨ Get Your Customized Resume")
@@ -349,7 +253,7 @@ def customize_resume_section():
     
     if st.button("Generate Customized Resume"):
         with st.spinner("Customizing your resume..."):
-            customized_resume = customize_resume(
+            customized_resume = generate_customized_resume(
                 st.session_state['resume_text'],
                 st.session_state['job_details']
             )
@@ -375,21 +279,11 @@ def footer():
     with col2:
         st.markdown("Last Updated: 2024-01-04")
     with col3:
-        # Use pytz for UTC timezone
         utc_now = datetime.now(pytz.UTC)
         current_time = utc_now.strftime("%Y-%m-%d %H:%M:%S UTC")
         st.markdown(f"Current Time: {current_time}")
 
-# Main App
 def main():
-    # Initialize session state
-    if 'step' not in st.session_state:
-        st.session_state['step'] = 1
-    if 'resume_text' not in st.session_state:
-        st.session_state['resume_text'] = None
-    if 'job_details' not in st.session_state:
-        st.session_state['job_details'] = None
-
     # Load CSS
     load_css()
 
